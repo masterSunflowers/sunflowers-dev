@@ -17,8 +17,8 @@ async function getAllFilesData(): Promise<FileData[]> {
 
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
-        vscode.window.showErrorMessage("No workspace folder is open.");
-        return [];
+        vscode.window.showErrorMessage("No workspace folder is open!");
+        throw Error("No workspace folder is open!");
     }
     const workspacePath = workspaceFolder.uri.fsPath;
     const workspaceName = workspaceFolder.name;
@@ -41,32 +41,49 @@ async function getAllFilesData(): Promise<FileData[]> {
 }
 
 
-async function sendDataToServer(data: any, endpoint: string, machineId: string, sessionId: string) {
-    const compressedData = pako.gzip(JSON.stringify(data));
-    axios.post(endpoint, compressedData, {
-        maxContentLength: Infinity,
-        maxBodyLength: Infinity,
-        headers: {
-            'Content-Encoding': 'gzip',
-            'Content-Type': 'application/json'
-        },
-        params: {
-            machineId: machineId,
-            sessionId: sessionId
-        }
-    }).then(response => {
-        console.log("Data sent!")
-    }).catch(error => {
-        throw Error(error);
-    });
+async function sendDataToServer(
+    data: any,
+    endpoint: string,
+    machineId: string,
+    sessionId: string
+): Promise<number> {
+    try {
+        const compressedData = pako.gzip(JSON.stringify(data));
+        await axios.post(endpoint, compressedData, {
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity,
+            headers: {
+                'Content-Encoding': 'gzip',
+                'Content-Type': 'application/json'
+            },
+            params: {
+                machineId: machineId,
+                sessionId: sessionId
+            }
+        }).then(response => {
+            console.log("Data sent!");
+        }).catch(err => {
+            throw err;
+        });
+        return 0;
+    } catch (err) {
+        return 1;
+    }
 }
 
 
-export async function sendProjectToServer() {
-    const filesData = await getAllFilesData();
+export async function sendProjectToServer(): Promise<number> {
+
+    let filesData;
+    try {
+        filesData = await getAllFilesData();
+    } catch (err) {
+        throw err;
+    }
     const machineId = vscode.env.machineId;
     const sessionId = vscode.env.sessionId;
     const chunkSize = 512;
+    let returncode;
     if (filesData.length >= 1024) {
         const paramsList = []
         for (let i = 0; i < filesData.length; i += chunkSize) {
@@ -77,18 +94,20 @@ export async function sendProjectToServer() {
                 endpoint: API_STORE
             })
         }
-        await Promise.all(paramsList.map((params) => sendDataToServer(params.data, params.endpoint, params.machineId, params.sessionId)))
+        const res = await Promise.all(paramsList.map((params) => sendDataToServer(params.data, params.endpoint, params.machineId, params.sessionId)))
+        returncode = res.includes(1) ? 1 : 0;
     } else {
-        await sendDataToServer(filesData, API_STORE, machineId, sessionId)
+        returncode = await sendDataToServer(filesData, API_STORE, machineId, sessionId)
     }
+    return returncode;
 }
 
 
 export function getCurrentFileContent(): any {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
-        vscode.window.showErrorMessage("No workspace folder is open.");
-        return [];
+        vscode.window.showErrorMessage("No workspace folder is open!");
+        throw Error("No workspace folder is open!")
     }
     const workspacePath = workspaceFolder.uri.fsPath;
     const workspaceName = workspaceFolder.name;
@@ -96,15 +115,15 @@ export function getCurrentFileContent(): any {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
         vscode.window.showErrorMessage("No active editor found!");
-        return undefined;
+        throw Error("No active editor found!")
     }
     const document = editor.document;
     const currentFilePath = document.fileName;
     let fileContent;
     if (document.uri.scheme !== "file") {
         if (!currentFilePath.endsWith(".ipynb")) {
-            vscode.window.showErrorMessage("Active file is not a physical file.");
-            return undefined;
+            vscode.window.showErrorMessage("Active file is not a physical file!");
+            throw Error("Active file is not a physical file!")
         } else {
             const raw = fs.readFileSync(currentFilePath, "utf-8");
             const jsonContent = JSON.parse(raw);

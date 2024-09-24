@@ -14,7 +14,11 @@ export class SunflowersDevWebView implements vscode.WebviewViewProvider {
     private _advancedAssistant: boolean = vscode.workspace.getConfiguration("sunflowersdev").advancedAssistant;
     constructor(private readonly _extensionUri: vscode.Uri) { }
 
-    public resolveWebviewView(webviewView: vscode.WebviewView, context: vscode.WebviewViewResolveContext, token: vscode.CancellationToken): Thenable<void> | void {
+    public resolveWebviewView(
+        webviewView: vscode.WebviewView,
+        context: vscode.WebviewViewResolveContext,
+        token: vscode.CancellationToken
+    ): Thenable<void> | void {
         this._view = webviewView;
         webviewView.webview.options = {
             enableScripts: true,
@@ -46,17 +50,32 @@ export class SunflowersDevWebView implements vscode.WebviewViewProvider {
     private async search(input?: string) {
         if (!input) return;
         this._prompt = input;
-        const [currentFileContent, currentFileRevPath] = getCurrentFileContent();
         // focus sunflowersdev activity from activity bar
         if (!this._view) {
             await vscode.commands.executeCommand("sunflowersdev.chatView.focus");
         } else {
             this._view?.show?.(true);
         }
+        let currentFileContent, currentFileRevPath;
+        try {
+            [currentFileContent, currentFileRevPath] = getCurrentFileContent();
+        } catch (err: any) {
+            console.log(err);
+            if (this._view) {
+                this._view.webview.postMessage({
+                    type: "addResponse",
+                    value: err.message
+                });
+            }
+            return;
+        }
 
         this._view?.webview.postMessage({ type: "setPrompt", value: this._prompt });
         if (this._view) {
-            this._view.webview.postMessage({ type: "addResponse", value: "Wait for SunflowersDev ..." });
+            this._view.webview.postMessage({
+                type: "addResponse",
+                value: "Wait for SunflowersDev ..."
+            });
         }
         try {
             let answer;
@@ -69,7 +88,7 @@ export class SunflowersDevWebView implements vscode.WebviewViewProvider {
                     context: currentFileContent
                 }).then(data => {
                     return this._postProcess(data);
-                }).catch(e => { throw Error(e) });
+                }).catch(err => { throw err });
             } else {
                 answer = await this._sendAdvancedGenRequest({
                     prompt: this._prompt,
@@ -77,18 +96,28 @@ export class SunflowersDevWebView implements vscode.WebviewViewProvider {
                     apiKey: this._apiKey,
                     context: currentFileContent,
                     targetFile: currentFileRevPath,
+                    maxIteration: 2
                 }).then(data => {
                     return this._postProcess(data)
                 }).catch(e => { throw Error(e) });
             }
             console.log("Received response from server");
-            this._view?.webview.postMessage({ type: "addResponse", value: answer });
+            this._view?.webview.postMessage({
+                type: "addResponse",
+                value: answer
+            });
         } catch (e: any) {
             console.log(e.message);
             if (e.message === "Error: Authentication error") {
-                this._view?.webview.postMessage({ type: "addResponse", value: "Authentication error. Please check model config!" });
+                this._view?.webview.postMessage({
+                    type: "addResponse",
+                    value: "Authentication error. Please check model config!"
+                });
             } else {
-                this._view?.webview.postMessage({ type: "addResponse", value: "Error" });
+                this._view?.webview.postMessage({
+                    type: "addResponse",
+                    value: "Error"
+                });
             }
         }
     }
@@ -127,8 +156,13 @@ export class SunflowersDevWebView implements vscode.WebviewViewProvider {
         const promise = new Promise<any>(async (resolve, reject) => {
             vscode.window.setStatusBarMessage(`SunflowersDev: Begin to generate code`, 2000);
             try {
-                await sendProjectToServer();
+                const returncode = await sendProjectToServer();
+                console.log(returncode);
+                if (returncode !== 0) {
+                    throw Error("Can not sent project to server.")
+                }
                 const requestBody = JSON.stringify(content);
+                console.log("Sending advanced generate request")
                 const data = axios.post(this._apiGen, requestBody, {
                     headers: {
                         "Content-Type": "application/json",
