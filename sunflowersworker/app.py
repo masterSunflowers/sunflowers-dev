@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 
+import sonarqube
 from flask import Flask, request
 from openai import OpenAI
 
@@ -15,6 +16,11 @@ handler.setLevel(logging.DEBUG)
 logger.addHandler(handler)
 
 WORK_DIR = os.path.abspath(os.path.dirname(__file__))
+
+sonar = sonarqube.SonarCloudClient(
+    sonarqube_url="http://localhost:9000",
+    token="squ_aaefe98d8c3aa5d713b685b60052be316f281e64",
+)
 
 
 def generate_code(
@@ -67,8 +73,34 @@ def normal_gen():
         logger.info("Generate successfully")
         return {"code": code}, 200
     except Exception as e:
-        logger.error(f"Encounter error: {str(e)}")
+        logger.error(e)
         return {"error": str(e)}, 500
+
+
+@app.post("/v1/api/advanced")
+def advanced_gen():
+    try:
+        logger.info("Have received advanced generate request!")
+        data = json.loads(request.data)
+        machine_id = request.args.get("machineId")
+        session_id = request.args.get("sessionId")
+        workspace_name = request.args.get("workspaceName")
+        logger.info("Start to run pipeline")
+        code = run_pipeline(machine_id, session_id, workspace_name, data)
+        logger.info("Generate successfully")
+        return {"code": code}, 200
+    except Exception as e:
+        logger.error(str(e))
+        return {"error": str(e)}, 500
+
+
+
+# TODO
+def run_pipeline(machine_id, session_id, data):
+    initial_scan(machine_id, session_id)
+    for _ in range(data["maxIteration"]):
+        pass
+    return "So far so good" 
 
 
 # TODO

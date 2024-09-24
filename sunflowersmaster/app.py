@@ -1,27 +1,76 @@
 import gzip
 import json
 import os
+import signal
+import sqlite3
+import sys
+import tarfile
+from collections import defaultdict
+from io import BytesIO
 from pathlib import Path
 from time import sleep
 from typing import Tuple
 
 import docker
-
-client = docker.from_env()
-
+import docker.errors
+import dotenv
 import requests
 from flask import Flask, request
 
+client = docker.from_env()
+dotenv.load_dotenv(override=True)
+
+
 app = Flask(__name__)
+
+WORK_DIR = os.path.abspath(os.path.dirname(__file__))
+
+
+def handle_termination(signal, frame):
+    try:
+        with open(os.path.join(WORK_DIR, "machines.json"), "r") as f:
+            machines = json.load(f)
+    except Exception as e:
+        machines = {}
+    for machine_id in machines:
+        try:
+            container = client.containers.get(
+                f"{machine_id}--{machines[machine_id]['session_id']}"
+            )
+            if container.status == "running":
+                container.stop()
+            container.remove()
+        except docker.errors.NotFound:
+            print(
+                f"Container name {machine_id}--{machines[machine_id]['session_id']} not found"
+            )
+        except Exception as e:
+            print(f"An error occur: {e}")
+
+    with open(os.path.join(WORK_DIR, "machines.json"), "w") as f:
+        json.dump({}, f)
+    sys.exit(0)
+
+
+signal.signal(signalnum=signal.SIGINT, handler=handle_termination)
+signal.signal(signalnum=signal.SIGTERM, handler=handle_termination)
 
 
 @app.post("/v1/api/store")
 def store_project():
     try:
         machine_id = request.args.get("machineId")
+        session_id = request.args.get("sessionId")
         compressed_data = request.data
         decompressed_data = gzip.decompress(compressed_data)
         data = json.loads(decompressed_data)
+        if not data:
+            return {"message": f"No data received"}, 200
+        workspace = os.path.split(data[0]["filePath"])[0]
+        if os.path.exists(os.path.join("projects", machine_id, workspace)):
+            os.system(
+                f"rm -rf {os.path.join('projects', machine_id, workspace)}"
+            )
         for item in data:
             absolute_path = Path(
                 os.path.join("projects", machine_id, item["filePath"])
@@ -32,10 +81,19 @@ def store_project():
             ) as f:
                 f.write(item["content"])
         print("Received project!")
+        try:
+            with open(os.path.join(WORK_DIR, "machines.json"), "r") as f:
+                machines = json.load(f)
+        except Exception:
+            machines = {}
+        machines[machine_id] = {}
+        machines[machine_id]["session_id"] = session_id
+        machines[machine_id]["workspace"] = workspace
+        with open(os.path.join(WORK_DIR, "machines.json"), "w") as f:
+            json.dump(machines, f)
         return {"message": f"Data received successfully"}, 200
-
     except Exception as e:
-        print("Something went wrong when store project!")
+        print(e)
         return {"error": str(e)}, 500
 
 
@@ -67,8 +125,8 @@ def create_worker(machine_id: str, session_id: str) -> int:
             ports={"8001/tcp": 8001},
         )
         container = client.containers.get(f"{machine_id}--{session_id}")
-        message = "* Running on http://172.17.0.2:8001"
-        timeout = 10
+        message = "* Running on all addresses (0.0.0.0)"
+        timeout = int(os.environ.get("INIT_WORKER_TIMEOUT"))
         stop_time = 1
         elapsed_time = 0
         while (
@@ -83,66 +141,110 @@ def create_worker(machine_id: str, session_id: str) -> int:
         else:
             print("Container take too long to start!")
             return 2
-    except:
-        print("Failed to create worker")
+    except Exception as e:
+        print(e)
         return 1
 
 
-# DOING
-def run_worker(
-    machine_id: str, session_id: str, advanced: bool, data
-) -> Tuple[str, str]:
-    if advanced == "false":
-        print("Generating normal")
-        response = requests.post(
-            "http://localhost:8001/v1/api/normal",
-            json=data,
-            headers={"HTTP_ACCEPT": "application/json"},
+def tar(folder_path):
+    tar_stream = BytesIO()
+    with tarfile.open(fileobj=tar_stream, mode="w") as tar:
+        for item in os.listdir(folder_path):
+            item_path = os.path.join(folder_path, item)
+            tar.add(item_path, arcname=item)
+    tar_stream.seek(0)
+    return tar_stream
+
+
+def copy_to_container(
+    container_name: str, folder_path: str, container_dest: str
+):
+    try:
+        container = client.containers.get(container_name)
+        tar_stream = tar(folder_path)
+        print(
+            f"Copying contents of {folder_path} to container {container_name}:{container_dest}"
         )
-        if response.status_code == 200:
-            return response.json()["code"], None
-        else:
-            raise Exception(response.json()["error"])
+        container.put_archive(container_dest, tar_stream)
+        print("Copied!")
+    except docker.errors.NotFound:
+        print(f"Container {container_name} not found.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+
+# DOING
+def run_worker(machine_id: str, advanced: bool, data) -> Tuple[str, str]:
+    with open(os.path.join(WORK_DIR, "machines.json"), "r") as f:
+        machines = json.load(f)
+
+    session_id = machines[machine_id]["session_id"]
+    workspace = machines[machine_id].get("workspace", None)
+    if advanced == "false":
+        print("Generating normal mode")
+        endpoint = "http://localhost:8001/v1/api/normal"
     else:
-        print("Enter advanced generate mode")
-        pass
+        print("Generating advanced mode")
+        container_name = f"{machine_id}--{session_id}"
+        folder_path = os.path.join(WORK_DIR, "projects", machine_id, workspace)
+        container_dest = "/workspace/project"
+        copy_to_container(container_name, folder_path, container_dest)
+        endpoint = "http://localhost:8001/v1/api/advanced"
+
+    print("Request body:")
+    print(data.keys())
+    response = requests.post(
+        url=endpoint,
+        json=data,
+        headers={"HTTP_ACCEPT": "application/json"},
+        params={"machineId": machine_id, "sessionId": session_id},
+    )
+    print("Sent request")
+    if response.status_code == 200:
+        return response.json()["code"], None
+    else:
+        print(f"Container message: {response.json()['error']}")
+        raise Exception(response.json()["error"])
 
 
 @app.post("/v1/api/gen")
 def gen():
+    print("Received gen request")
     try:
         machine_id = request.args.get("machineId")
         session_id = request.args.get("sessionId")
         advanced = request.args.get("advanced")
         data = json.loads(request.data)
         try:
-            with open("sessions.json", "r") as f:
-                sessions = json.load(f)
-        except:
-            sessions = {}
-        if not sessions.get(machine_id):
+            with open(os.path.join(WORK_DIR, "machines.json"), "r") as f:
+                machines = json.load(f)
+
+        except Exception as e:
+            machines = {}
+        if not machines.get(machine_id, None):
             return_code = create_worker(machine_id, session_id)
             if return_code == 1:
                 raise Exception("Can not create worker")
-            sessions[machine_id] = session_id
-            with open("sessions.json", "w") as f:
-                json.dump(sessions, f)
+            machines[machine_id] = {}
+            machines[machine_id]["session_id"] = session_id
+            with open(os.path.join(WORK_DIR, "machines.json"), "w") as f:
+                json.dump(machines, f)
         else:
-            if sessions[machine_id] != session_id:
+            if machines[machine_id]["session_id"] != session_id:
                 return_code = rename_worker(
-                    machine_id, sessions[machine_id], session_id
+                    machine_id, machines[machine_id]["session_id"], session_id
                 )
                 if return_code == 1:
                     raise Exception("Can not rename worker")
-                sessions[machine_id] = session_id
-                with open("sessions.json", "w") as f:
-                    json.dump(sessions, f)
+                machines[machine_id]["session_id"] = session_id
+                with open(os.path.join(WORK_DIR, "machines.json"), "w") as f:
+                    json.dump(machines, f)
         print("Prepare to run worker")
-        code, details = run_worker(machine_id, session_id, advanced, data)
+        code, details = run_worker(machine_id, advanced, data)
         print("Generate successfully")
         return {"code": f"```python\n{code}\n```", "details": details}, 200
     except Exception as e:
-        print(str(e))
+        print(e)
         if "authentication_error" in str(e):
             return {"error": str(e)}, 401
         else:
