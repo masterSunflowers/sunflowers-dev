@@ -82,26 +82,25 @@ export class SunflowersDevWebView implements vscode.WebviewViewProvider {
             let answer;
             console.log("Prepare to send request to server");
             if (!this._advancedAssistant) {
-                answer = await this._sendNormalGenRequest({
+                answer = await this._sendRequest({
                     prompt: this._prompt,
                     baseUrl: this._baseUrl,
                     apiKey: this._apiKey,
                     context: currentFileContent
-                }).then(data => {
+                }, this._advancedAssistant).then(data => {
                     return this._postProcess(data);
                 }).catch(err => { throw err });
             } else {
-                console.log(currentFileRevPath)
-                answer = await this._sendAdvancedGenRequest({
+                answer = await this._sendRequest({
                     prompt: this._prompt,
                     baseUrl: this._baseUrl,
                     apiKey: this._apiKey,
                     context: currentFileContent,
                     targetFile: currentFileRevPath,
                     maxIteration: 2
-                }).then(data => {
+                }, this._advancedAssistant).then(data => {
                     return this._postProcess(data)
-                }).catch(e => { throw Error(e) });
+                }).catch(err => { throw err });
             }
             console.log("Received response from server");
             this._view?.webview.postMessage({
@@ -109,80 +108,58 @@ export class SunflowersDevWebView implements vscode.WebviewViewProvider {
                 value: answer
             });
         } catch (err: any) {
-            if (err.response?.status == 404) {
+            console.log(err);
+            if (err.response) {
+                if (err.response.status == 401) {
+                    this._view?.webview.postMessage({
+                        type: "addResponse",
+                        value: "Authentication error. Please check model config!"
+                    });
+                } else {
+                    this._view?.webview.postMessage({
+                        type: "addResponse",
+                        value: err.response.message
+                    });
+                }
+            } else if (err.request) {
                 this._view?.webview.postMessage({
                     type: "addResponse",
-                    value: "Can not connect to server!"
-                });
-            } else if (err.response?.status == 401) {
-                this._view?.webview.postMessage({
-                    type: "addResponse",
-                    value: "Authentication error. Please check model config!"
+                    value: "Can connect to server!"
                 });
             } else {
                 this._view?.webview.postMessage({
                     type: "addResponse",
-                    value: err.response?.message
+                    value: "Error"
                 });
             }
         }
     }
 
-    private async _sendNormalGenRequest(content: any): Promise<any> {
+    private async _sendRequest(content: any, advanced: boolean): Promise<any> {
         const promise = new Promise<any>(async (resolve, reject) => {
-            vscode.window.setStatusBarMessage(`SunflowersDev: Begin to generate code`, 2000);
+            vscode.window.setStatusBarMessage(`SunflowersDev: Begin to generate code`, 10000);
             try {
                 const requestBody = JSON.stringify(content);
-                const data = axios.post(this._apiGen, requestBody, {
+                if (advanced) {
+                    console.log("Generate code in advanced mode");
+                    await sendProjectToServer();
+                } else {
+                    console.log("Generate code in normal mode");
+                }
+                const data = await axios.post(this._apiGen, requestBody, {
                     headers: {
                         "Content-Type": "application/json",
                     },
                     params: {
                         machineId: vscode.env.machineId,
                         sessionId: vscode.env.sessionId,
-                        advanced: false
+                        advanced: advanced
                     }
-                }).then(response => response.data).catch((e) => {
-                    if (e.status === 401) {
-                        throw Error("Authentication error");
-                    } else {
-                        throw Error(e.response.data.error);
-                    }
+                }).then(response => response.data).catch((err) => {
+                    throw err;
                 });
                 resolve(data);
-                vscode.window.setStatusBarMessage(`SunflowersDev: Finished generate code`, 2000);
-            } catch (err) {
-                reject(err);
-            }
-        });
-        return promise;
-    }
-
-    private async _sendAdvancedGenRequest(content: any): Promise<any> {
-        const promise = new Promise<any>(async (resolve, reject) => {
-            vscode.window.setStatusBarMessage(`SunflowersDev: Begin to generate code`, 2000);
-            try {
-                await sendProjectToServer();
-                const requestBody = JSON.stringify(content);
-                console.log("Sending advanced generate request")
-                const data = axios.post(this._apiGen, requestBody, {
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                    params: {
-                        machineId: vscode.env.machineId,
-                        sessionId: vscode.env.sessionId,
-                        advanced: true
-                    }
-                }).then(response => response.data).catch((e) => {
-                    if (e.status === 401) {
-                        throw Error("Authentication error");
-                    } else {
-                        throw Error(e.response.data.error);
-                    }
-                });
-                resolve(data);
-                vscode.window.setStatusBarMessage(`SunflowersDev: Finished generate code`, 2000);
+                vscode.window.setStatusBarMessage(`SunflowersDev: Finished generate code`, 10000);
             } catch (err) {
                 reject(err);
             }

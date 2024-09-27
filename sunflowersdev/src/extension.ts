@@ -59,10 +59,10 @@ export async function deactivate() {
 			machineId: machineId,
 			sessionId: sessionId
 		}
-	}).then(response => response.data["message"]).catch(e => {
-		console.log(e);
-		if (e.response.data) {
-			return e.response.data.message;
+	}).then(response => response.data["message"]).catch(err => {
+		console.log(err);
+		if (err.response?.data) {
+			return err.response.data.message;
 		} else {
 			return null
 		}
