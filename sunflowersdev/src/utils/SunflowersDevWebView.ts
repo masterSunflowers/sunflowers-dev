@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 import { API_GENERATE } from "../config";
-import axios from "axios";
+import axios, { AxiosError } from "axios";
 import { getCurrentFileContent, sendProjectToServer } from "./utils";
+import { Axios } from "axios";
 
 
 export class SunflowersDevWebView implements vscode.WebviewViewProvider {
@@ -90,6 +91,7 @@ export class SunflowersDevWebView implements vscode.WebviewViewProvider {
                     return this._postProcess(data);
                 }).catch(err => { throw err });
             } else {
+                console.log(currentFileRevPath)
                 answer = await this._sendAdvancedGenRequest({
                     prompt: this._prompt,
                     baseUrl: this._baseUrl,
@@ -106,9 +108,13 @@ export class SunflowersDevWebView implements vscode.WebviewViewProvider {
                 type: "addResponse",
                 value: answer
             });
-        } catch (e: any) {
-            console.log(e.message);
-            if (e.message === "Error: Authentication error") {
+        } catch (err: any) {
+            if (err.response?.status == 404) {
+                this._view?.webview.postMessage({
+                    type: "addResponse",
+                    value: "Can not connect to server!"
+                });
+            } else if (err.response?.status == 401) {
                 this._view?.webview.postMessage({
                     type: "addResponse",
                     value: "Authentication error. Please check model config!"
@@ -116,7 +122,7 @@ export class SunflowersDevWebView implements vscode.WebviewViewProvider {
             } else {
                 this._view?.webview.postMessage({
                     type: "addResponse",
-                    value: "Error"
+                    value: err.response?.message
                 });
             }
         }
@@ -156,11 +162,7 @@ export class SunflowersDevWebView implements vscode.WebviewViewProvider {
         const promise = new Promise<any>(async (resolve, reject) => {
             vscode.window.setStatusBarMessage(`SunflowersDev: Begin to generate code`, 2000);
             try {
-                const returncode = await sendProjectToServer();
-                console.log(returncode);
-                if (returncode !== 0) {
-                    throw Error("Can not sent project to server.")
-                }
+                await sendProjectToServer();
                 const requestBody = JSON.stringify(content);
                 console.log("Sending advanced generate request")
                 const data = axios.post(this._apiGen, requestBody, {

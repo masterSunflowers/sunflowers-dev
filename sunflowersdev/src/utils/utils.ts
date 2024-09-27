@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import path from "path";
 import axios from "axios";
-import { API_STORE } from "../config";
+import { API_STORE, CHUNK_SIZE } from "../config";
 import pako from "pako";
 import fs from "fs";
 
@@ -46,7 +46,7 @@ async function sendDataToServer(
     endpoint: string,
     machineId: string,
     sessionId: string
-): Promise<number> {
+) {
     try {
         const compressedData = pako.gzip(JSON.stringify(data));
         await axios.post(endpoint, compressedData, {
@@ -65,15 +65,13 @@ async function sendDataToServer(
         }).catch(err => {
             throw err;
         });
-        return 0;
     } catch (err) {
-        return 1;
+        throw err;
     }
 }
 
 
-export async function sendProjectToServer(): Promise<number> {
-
+export async function sendProjectToServer() {
     let filesData;
     try {
         filesData = await getAllFilesData();
@@ -82,24 +80,35 @@ export async function sendProjectToServer(): Promise<number> {
     }
     const machineId = vscode.env.machineId;
     const sessionId = vscode.env.sessionId;
-    const chunkSize = 512;
-    let returncode;
-    if (filesData.length >= 1024) {
-        const paramsList = []
-        for (let i = 0; i < filesData.length; i += chunkSize) {
-            paramsList.push({
-                data: filesData.slice(i, i + chunkSize),
-                machineId: machineId,
-                sessionId: sessionId,
-                endpoint: API_STORE
-            })
+    const chunkSize = CHUNK_SIZE;
+
+    // If number of file in project greater or equal than 2 times of chunk_size 
+    // then sent project to server by chunks
+    try {
+        if (filesData.length >= 2 * CHUNK_SIZE) {
+            const paramsList = []
+            for (let i = 0; i < filesData.length; i += chunkSize) {
+                paramsList.push({
+                    data: filesData.slice(i, i + chunkSize),
+                    machineId: machineId,
+                    sessionId: sessionId,
+                    endpoint: API_STORE
+                })
+            }
+            await Promise.all(paramsList.map((params) => {
+                return sendDataToServer(
+                    params.data,
+                    params.endpoint,
+                    params.machineId,
+                    params.sessionId
+                );
+            }));
+        } else {
+            await sendDataToServer(filesData, API_STORE, machineId, sessionId)
         }
-        const res = await Promise.all(paramsList.map((params) => sendDataToServer(params.data, params.endpoint, params.machineId, params.sessionId)))
-        returncode = res.includes(1) ? 1 : 0;
-    } else {
-        returncode = await sendDataToServer(filesData, API_STORE, machineId, sessionId)
+    } catch (err) {
+        throw err;
     }
-    return returncode;
 }
 
 
@@ -140,7 +149,7 @@ export function getCurrentFileContent(): any {
     } else {
         fileContent = document.getText();
     }
-    const currentFileRevPath = workspaceName + path.relative(workspacePath, currentFilePath);
+    const currentFileRevPath = path.join(workspaceName, path.relative(workspacePath, currentFilePath));
     return [fileContent, currentFileRevPath];
 }
 

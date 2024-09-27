@@ -2,7 +2,9 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 import { SunflowersDevWebView } from './utils/SunflowersDevWebView';
-import { sendProjectToServer } from './utils/utils';
+import { API_KILL_SESSION } from './config';
+import axios from 'axios';
+
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -41,13 +43,29 @@ export async function activate(context: vscode.ExtensionContext) {
 			provider.setBaseUrl(baseUrl);
 			const advancedAssistant = vscode.workspace.getConfiguration("sunflowersdev").advancedAssistant;
 			provider.setAdvancedAssistant(advancedAssistant);
-			if (advancedAssistant) {
-				await sendProjectToServer();
-				console.log("Sent project to server!")
-			}
 		}
 	});
 }
 
 // This method is called when your extension is deactivated
-export function deactivate() { }
+export async function deactivate() {
+	const machineId = vscode.env.machineId;
+	const sessionId = vscode.env.sessionId;
+	const message = await axios.delete(API_KILL_SESSION, {
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		params: {
+			machineId: machineId,
+			sessionId: sessionId
+		}
+	}).then(response => response.data["message"]).catch(e => {
+		console.log(e);
+		if (e.response.data) {
+			return e.response.data.message;
+		} else {
+			return null
+		}
+	});
+	console.log(message);
+}
