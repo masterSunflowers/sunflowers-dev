@@ -1,0 +1,1 @@
+ 2pyX=hromnivision/utils/generic.py
