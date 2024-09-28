@@ -16,12 +16,12 @@ unzip sonar-scanner-cli-6.2.0.4584-linux-x64.zip && \
 mv sonar-scanner-6.2.0.4584-linux-x64 /opt/sonar-scanner
 
 RUN \
-echo "sonar.host.url=http://localhost:9000" >> /opt/sonar-scanner/conf/sonar-scanner.properties && \
+echo "sonar.host.url=https://snipe-related-possibly.ngrok-free.app" >> /opt/sonar-scanner/conf/sonar-scanner.properties && \
 echo "sonar.sourceEncoding=UTF-8" >> /opt/sonar-scanner/conf/sonar-scanner.properties
 
 ENV PATH="$PATH:/opt/sonar-scanner/bin"
 
-RUN pip install --no-cache-dir openai flask python-sonarqube-api
+RUN pip install --no-cache-dir openai flask requests
 
 RUN rm -rf /var/lib/apt/lists/*
 

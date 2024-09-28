@@ -19,7 +19,7 @@ handler.setLevel(logging.DEBUG)
 logger.addHandler(handler)
 
 WORK_DIR = os.path.abspath(os.path.dirname(__file__))
-SONAR_TOKEN = "squ_eaaf984a9814658d689ffecff829d4fd136fe4b0"
+SONAR_TOKEN = "squ_4ad3cba8858c0c21feae14a1c619e6855ddbc98c"
 SONAR_SOURCES = "/workspace/project/"
 SONAR_PROJECT_BASE_DIR = "/workspace/project/"
 
@@ -195,7 +195,7 @@ def get_issues(project_key: str, version: str) -> Tuple[Dict, str]:
         page = 1
         page_size = 100
         response = requests.get(
-            url="http://localhost:9000/api/issues/search",
+            url="https://snipe-related-possibly.ngrok-free.app/api/issues/search",
             headers={"Authorization": f"Bearer {SONAR_TOKEN}"},
             params={"p": page, "ps": page_size},
         )
@@ -203,7 +203,7 @@ def get_issues(project_key: str, version: str) -> Tuple[Dict, str]:
         issues = {}
         while page * page_size - 100 < total:
             response = requests.get(
-                url="http://localhost:9000/api/issues/search",
+                url="https://snipe-related-possibly.ngrok-free.app/api/issues/search",
                 headers={"Authorization": f"Bearer {SONAR_TOKEN}"},
                 params={"p": page, "ps": page_size},
             )
@@ -232,7 +232,9 @@ def scan(project_key: str, project_name: str, version: str):
     if res.returncode == 0:
         logger.info("Scanned project")
         output_lines = res.stdout.splitlines()
-        pattern = "http://localhost:9000/api/ce/task?id="
+        pattern = (
+            "https://snipe-related-possibly.ngrok-free.app/api/ce/task?id="
+        )
         for line in output_lines:
             if line.find(pattern) >= 0:
                 task_status_url = line[line.find(pattern) :]
