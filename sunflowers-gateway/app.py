@@ -22,8 +22,9 @@ dotenv.load_dotenv(override=True)
 
 
 app = Flask(__name__)
-available_ports = set(range(8001, 9000)) + set(range(9001, 10000))
+available_ports = set(range(8001, 9000)).union(set(range(9001, 10000)))
 used_ports = set()
+terminate_flag = False
 
 WORK_DIR = os.path.abspath(os.path.dirname(__file__))
 logger = logging.Logger("gate-way")
@@ -34,24 +35,22 @@ logger.addHandler(handler)
 
 
 def handle_termination(signal, frame):
+    logger.info("Received terminate signal")
     try:
         with open(os.path.join(WORK_DIR, "machines.json"), "r") as f:
             machines = json.load(f)
     except Exception as e:
         machines = {}
-
     for machine_id in machines:
         for i in range(len(machines[machine_id]) - 1, -1, -1):
             try:
-                kill_worker(machine_id, machines[machine_id][i])
-                del machines[machine_id][i]
+                kill_worker(machine_id, machines[machine_id][i]["session_id"])
             except Exception as e:
                 logger.error(f"Encounter error: {e}")
     sys.exit(0)
 
 
 signal.signal(signalnum=signal.SIGINT, handler=handle_termination)
-signal.signal(signalnum=signal.SIGTERM, handler=handle_termination)
 
 
 def kill_worker(machine_id: str, session_id: str):
@@ -63,13 +62,12 @@ def kill_worker(machine_id: str, session_id: str):
         sessions = machines[machine_id]
     for session in sessions:
         if session["session_id"] == session_id:
+            logger.info(f"Worker {machine_id}--{session_id} in worker list")
             target_session = session
             break
     else:
-        logger.info(
-            f"Worker {machine_id}--{session_id} has not been created yet"
-        )
-        return
+        logger.info(f"Worker {machine_id}--{session_id} not in worker list")
+        return -1
     try:
         res = subprocess.run(
             f"docker rm -f {machine_id}--{session_id}",
@@ -82,6 +80,8 @@ def kill_worker(machine_id: str, session_id: str):
             available_ports.add(target_session["port"])
             used_ports.remove(target_session["port"])
             sessions.remove(target_session)
+            logger.debug("Session after kill worker:")
+            logger.debug(sessions)
         else:
             logger.error(
                 f"An error occur while killing worker named {machine_id}--{session_id}"
@@ -119,7 +119,7 @@ def create_worker(machine_id: str, session_id: str) -> int:
     for session in sessions:
         if session["session_id"] == session_id:
             logger.info("Worker existed")
-            return 0
+            return session["port"]
 
     try:
         worker_port = available_ports.pop()
@@ -318,4 +318,4 @@ def gen():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    app.run(host="0.0.0.0", port=8000, debug=True, use_reloader=False)
