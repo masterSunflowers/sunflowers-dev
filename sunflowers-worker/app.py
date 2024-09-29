@@ -124,8 +124,9 @@ def run_pipeline(machine_id, session_id, data):
     try:
         logger.debug(f"Machine ID: {machine_id}")
         logger.debug(f"Session ID: {session_id}")
+        remove_already_project(f"{machine_id}--{session_id}")
         initial_issues, num_initial_issue = get_issues(
-            f"{machine_id}--{session_id}", "1.0"
+            f"{machine_id}--{session_id}", "0.0"
         )
         logger.debug(f"Num initial issue: {num_initial_issue}")
         with open("initial_issues.json", "w") as f:
@@ -140,12 +141,11 @@ def run_pipeline(machine_id, session_id, data):
         data["apiKey"],
         retrieved_context,
     )
+
     for i in range(1, data["maxIteration"]):
         update_project(data["targetFile"], code)
         logger.debug(f"Version: {i + 1}.0")
-        issues, num_issue = get_issues(
-            f"{machine_id}--{session_id}", f"{i + 1}.0"
-        )
+        issues, num_issue = get_issues(f"{machine_id}--{session_id}", f"{i}.0")
         logger.debug(f"Num issue at version {i + 1}.0: {num_issue}")
         generated_code_issues = check_code_issue(issues)
         logger.debug(f"Generated code issues: {generated_code_issues}")
@@ -261,7 +261,20 @@ def retrieval(prompt: str):
     return ""
 
 
-# TODO
+def remove_already_project(project_key: str):
+    response = requests.get(
+        url="https://snipe-related-possibly.ngrok-free.app/api/projects/delete",
+        headers={"Authorization": f"Bearer {SONAR_TOKEN}"},
+        params={"project": project_key},
+    )
+    if response.status_code == 200:
+        logger.info("Removed already project")
+    elif response.status_code == 404:
+        logger.info("The project is not exist")
+    else:
+        logger.error(f"Encounter error: {response.content}")
+
+
 def check_code_issue(issues):
     try:
         with open("initial_issues.json", "r") as f:
