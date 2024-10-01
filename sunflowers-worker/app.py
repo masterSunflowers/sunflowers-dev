@@ -19,7 +19,7 @@ handler.setLevel(logging.DEBUG)
 logger.addHandler(handler)
 
 WORK_DIR = os.path.abspath(os.path.dirname(__file__))
-SONAR_TOKEN = "squ_4ad3cba8858c0c21feae14a1c619e6855ddbc98c"
+SONAR_TOKEN = "squ_3079d50dd62445c56b43615807376510e8a3f003"
 SONAR_SOURCES = "/workspace/project/"
 SONAR_PROJECT_BASE_DIR = "/workspace/project/"
 
@@ -32,15 +32,17 @@ def generate_code(
     additional_context: str = None,
 ):
     final_prompt = (
-        "**Requirement**: Complete the function\n",
+        "**Requirement**: Complete the function body\n",
         "\n"
-        "**Code**:\n"
+        "**Context**:\n"
         f"{context}\n"
         "\n"
+        "**Function**:\n"
         f"{prompt}\n"
         "\n\n"
         "**Some similar code snippets**:\n"
-        f"{additional_context}",
+        f"{additional_context}\n"
+        "**Body**:",
     )
     try:
         client = OpenAI(
@@ -48,7 +50,10 @@ def generate_code(
             base_url=base_url,
         )
         messages = [
-            {"role": "system", "content": "You are a professional developer."},
+            {
+                "role": "system",
+                "content": "You are a professional developer. You must return ONLY function body",
+            },
             {"role": "user", "content": str(final_prompt)},
             {"role": "assistant", "content": "```python\n", "prefix": True},
         ]
@@ -59,34 +64,8 @@ def generate_code(
         )
     except Exception as e:
         raise e
-    # return response.choices[0].message.content, messages.append(
-    #     response.choices[0].message
-    # )
-    code = """
-def _unix_pattern_to_parameter_names(
-    constraints: List[str], all_parameter_names: Set[str]
-) -> Union[None, Set[str]]:
-    \"\"\"
-    Convert Unix-style patterns in constraints to a set of parameter names.
-
-    Args:
-        constraints (List[str]): List of Unix-style patterns to match against parameter names.
-        all_parameter_names (Set[str]): Set of all available parameter names.
-
-    Returns:
-        Union[None, Set[str]]: Set of parameter names that match the constraints, or None if no matches are found.
-    \"\"\"
-    matchedParameters = set()
-
-    for pattern in constraints:
-        for param_name in all_parameter_names:
-            if fnmatch.fnmatch(param_name, pattern):
-                matchedParameters.add(param_name)
-
-    return matchedParameters if matchedParameters else None"""
-    response.choices[0].message.content = code
     messages.append(response.choices[0].message)
-    return code, messages
+    return response.choices[0].message.content, messages
 
 
 @app.post("/v1/api/normal")
@@ -124,10 +103,15 @@ def run_pipeline(machine_id, session_id, data):
     try:
         logger.debug(f"Machine ID: {machine_id}")
         logger.debug(f"Session ID: {session_id}")
-        remove_already_project(f"{machine_id}--{session_id}")
+        try:
+            remove_already_project(f"{machine_id}--{session_id}")
+        except Exception as e:
+            raise e
+        logger.debug("Start get initial issues")
         initial_issues, num_initial_issue = get_issues(
             f"{machine_id}--{session_id}", "0.0"
         )
+        logger.debug("Got initial issues")
         logger.debug(f"Num initial issue: {num_initial_issue}")
         with open("initial_issues.json", "w") as f:
             json.dump(initial_issues, f)
@@ -143,10 +127,13 @@ def run_pipeline(machine_id, session_id, data):
     )
 
     for i in range(1, data["maxIteration"]):
+        logger.debug(f"Iteration {i}:")
+        logger.debug("Start update project")
         update_project(data["targetFile"], code)
-        logger.debug(f"Version: {i + 1}.0")
+        logger.debug("Updated project")
+        logger.debug(f"Version: {i}.0")
         issues, num_issue = get_issues(f"{machine_id}--{session_id}", f"{i}.0")
-        logger.debug(f"Num issue at version {i + 1}.0: {num_issue}")
+        logger.debug(f"Num issue at version {i}.0: {num_issue}")
         generated_code_issues = check_code_issue(issues)
         logger.debug(f"Generated code issues: {generated_code_issues}")
         if not generated_code_issues:
@@ -192,10 +179,12 @@ def get_issues(project_key: str, version: str) -> Tuple[Dict, str]:
             )
         if elapsed_time >= timeout:
             raise TimeoutError("Report processing timeout")
+        else:
+            logger.debug(f"Generate report time: {elapsed_time}")
         page = 1
         page_size = 100
         response = requests.get(
-            url="https://snipe-related-possibly.ngrok-free.app/api/issues/search",
+            url="http://34.70.219.18:9000/api/issues/search",
             headers={"Authorization": f"Bearer {SONAR_TOKEN}"},
             params={"p": page, "ps": page_size},
         )
@@ -203,7 +192,7 @@ def get_issues(project_key: str, version: str) -> Tuple[Dict, str]:
         issues = {}
         while page * page_size - 100 < total:
             response = requests.get(
-                url="https://snipe-related-possibly.ngrok-free.app/api/issues/search",
+                url="http://34.70.219.18:9000/api/issues/search",
                 headers={"Authorization": f"Bearer {SONAR_TOKEN}"},
                 params={"p": page, "ps": page_size},
             )
@@ -218,6 +207,8 @@ def get_issues(project_key: str, version: str) -> Tuple[Dict, str]:
 
 
 def scan(project_key: str, project_name: str, version: str):
+    logger.debug("Start scan project")
+    start_time = time.time()
     cmd = (
         "sonar-scanner -X "
         f'-D"sonar.token={SONAR_TOKEN}" '
@@ -231,10 +222,10 @@ def scan(project_key: str, project_name: str, version: str):
     res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     if res.returncode == 0:
         logger.info("Scanned project")
+        end_time = time.time()
+        logger.debug("Scanning time: {:.2f}".format((end_time - start_time)))
         output_lines = res.stdout.splitlines()
-        pattern = (
-            "https://snipe-related-possibly.ngrok-free.app/api/ce/task?id="
-        )
+        pattern = "http://34.70.219.18:9000/api/ce/task?id="
         for line in output_lines:
             if line.find(pattern) >= 0:
                 task_status_url = line[line.find(pattern) :]
@@ -250,8 +241,18 @@ def update_project(target_file: str, code: str):
     with open(absolute_path, "r", encoding="utf-8", errors="ignore") as f:
         file_content = f.read()
     last_func_start_idx = file_content.rfind("def ")
-    new_content = file_content[:last_func_start_idx] + code
-    logger.debug(f"New content of target file {new_content}")
+    idx = last_func_start_idx - 1
+    tab = ""
+    while idx >= 0 and file_content[idx] == " ":
+        idx -= 1
+    tab = " " * (last_func_start_idx - idx - 1)
+    loc = code.splitlines()
+    for i in range(1, len(loc)):
+        loc[i] = tab + loc[i]
+
+    adapted_code = "\n".join(loc)
+    new_content = file_content[:last_func_start_idx] + adapted_code
+    logger.debug(f"New content of target file:\n\n {new_content}")
     with open(absolute_path, "w", encoding="utf-8", errors="ignore") as f:
         f.write(new_content)
 
@@ -262,20 +263,24 @@ def retrieval(prompt: str):
 
 
 def remove_already_project(project_key: str):
-    response = requests.get(
-        url="https://snipe-related-possibly.ngrok-free.app/api/projects/delete",
+    logger.debug("Start remove already project")
+    response = requests.post(
+        url="http://34.70.219.18:9000/api/projects/delete",
         headers={"Authorization": f"Bearer {SONAR_TOKEN}"},
         params={"project": project_key},
     )
-    if response.status_code == 200:
+    if response.status_code == 204:
         logger.info("Removed already project")
     elif response.status_code == 404:
         logger.info("The project is not exist")
     else:
-        logger.error(f"Encounter error: {response.content}")
+        raise Exception(
+            f"Status code: {response.status_code}\n{response.content}"
+        )
 
 
 def check_code_issue(issues):
+    logger.debug("Start check code issue")
     try:
         with open("initial_issues.json", "r") as f:
             initial_issues = json.load(f)

@@ -2,7 +2,7 @@ FROM ubuntu:22.04
 
 RUN \
 apt-get update -y && \
-apt-get install -y openjdk-17-jdk python3.11 python3-pip
+apt-get install -y python3.11 python3-pip
 
 RUN \
 apt-get update -y && \
@@ -16,7 +16,7 @@ unzip sonar-scanner-cli-6.2.0.4584-linux-x64.zip && \
 mv sonar-scanner-6.2.0.4584-linux-x64 /opt/sonar-scanner
 
 RUN \
-echo "sonar.host.url=https://snipe-related-possibly.ngrok-free.app" >> /opt/sonar-scanner/conf/sonar-scanner.properties && \
+echo "sonar.host.url=http://34.70.219.18:9000" >> /opt/sonar-scanner/conf/sonar-scanner.properties && \
 echo "sonar.sourceEncoding=UTF-8" >> /opt/sonar-scanner/conf/sonar-scanner.properties
 
 ENV PATH="$PATH:/opt/sonar-scanner/bin"
