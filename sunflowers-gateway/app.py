@@ -17,14 +17,16 @@ import dotenv
 import requests
 from flask import Flask, request
 
+from completion import advanced_complete, normal_complete
+
 client = docker.from_env()
 dotenv.load_dotenv(override=True)
 WORK_DIR = os.path.abspath(os.path.dirname(__file__))
 
+
 app = Flask(__name__)
 available_ports = set(range(8001, 9000)).union(set(range(9001, 10000)))
 used_ports = set()
-terminate_flag = False
 
 WORK_DIR = os.path.abspath(os.path.dirname(__file__))
 logger = logging.Logger("gate-way")
@@ -316,6 +318,25 @@ def gen():
         return {"code": f"```python\n{code}\n```", "details": details}, 200
     except Exception as e:
         logger.error(f"Generate error: {e}")
+        if "authentication_error" in str(e):
+            return {"error": str(e)}, 401
+        else:
+            return {"error": str(e)}, 500
+
+
+@app.post("/v1/api/complete")
+def complete():
+    logger.info("Received complete request")
+    try:
+        advanced = request.args.get("advanced")
+        data = json.loads(request.data)
+        if advanced:
+            code = normal_complete(data)
+        else:
+            code = advanced_complete(data)
+        return {"code": code}, 200
+    except Exception as e:
+        logger.error(f"Completion error: {e}")
         if "authentication_error" in str(e):
             return {"error": str(e)}, 401
         else:

@@ -45,7 +45,7 @@ def generate_code(
         f"{additional_context}\n"
         "\n"
         "**Prompt:**\n"
-        f"{context}"
+        f""
     )
     try:
         client = OpenAI(
