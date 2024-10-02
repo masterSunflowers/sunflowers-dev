@@ -6,11 +6,18 @@ import sys
 import time
 from typing import Dict, List, Tuple
 
+import dotenv
 import requests
+import torch
 from flask import Flask, request
 from openai import OpenAI
+from pymilvus import Collection, connections
+from transformers import AutoModel, AutoTokenizer
 
 app = Flask(__name__)
+dotenv.load_dotenv(override=True)
+SONARQUBE_IP = os.environ.get("SONARQUBE_IP")
+DATABASE_IP = os.environ.get("DATABASE_IP")
 
 logger = logging.Logger("worker")
 logger.setLevel(logging.DEBUG)
@@ -19,7 +26,7 @@ handler.setLevel(logging.DEBUG)
 logger.addHandler(handler)
 
 WORK_DIR = os.path.abspath(os.path.dirname(__file__))
-SONAR_TOKEN = "squ_3079d50dd62445c56b43615807376510e8a3f003"
+SONAR_TOKEN = os.environ.get("SONARQUBE_TOKEN")
 SONAR_SOURCES = "/workspace/project/"
 SONAR_PROJECT_BASE_DIR = "/workspace/project/"
 
@@ -32,17 +39,13 @@ def generate_code(
     additional_context: str = None,
 ):
     final_prompt = (
-        "**Requirement**: Complete the function body\n",
+        "**Requirement**: Complete the function\n",
         "\n"
-        "**Context**:\n"
-        f"{context}\n"
-        "\n"
-        "**Function**:\n"
-        f"{prompt}\n"
-        "\n\n"
         "**Some similar code snippets**:\n"
         f"{additional_context}\n"
-        "**Body**:",
+        "\n"
+        "**Prompt:**\n"
+        f"{context}"
     )
     try:
         client = OpenAI(
@@ -52,7 +55,7 @@ def generate_code(
         messages = [
             {
                 "role": "system",
-                "content": "You are a professional developer. You must return ONLY function body",
+                "content": "You are a professional python developer",
             },
             {"role": "user", "content": str(final_prompt)},
             {"role": "assistant", "content": "```python\n", "prefix": True},
@@ -184,7 +187,7 @@ def get_issues(project_key: str, version: str) -> Tuple[Dict, str]:
         page = 1
         page_size = 100
         response = requests.get(
-            url="http://34.70.219.18:9000/api/issues/search",
+            url=f"http://{SONARQUBE_IP}:9000/api/issues/search",
             headers={"Authorization": f"Bearer {SONAR_TOKEN}"},
             params={"p": page, "ps": page_size},
         )
@@ -192,7 +195,7 @@ def get_issues(project_key: str, version: str) -> Tuple[Dict, str]:
         issues = {}
         while page * page_size - 100 < total:
             response = requests.get(
-                url="http://34.70.219.18:9000/api/issues/search",
+                url=f"http://{SONARQUBE_IP}:9000/api/issues/search",
                 headers={"Authorization": f"Bearer {SONAR_TOKEN}"},
                 params={"p": page, "ps": page_size},
             )
@@ -225,7 +228,7 @@ def scan(project_key: str, project_name: str, version: str):
         end_time = time.time()
         logger.debug("Scanning time: {:.2f}".format((end_time - start_time)))
         output_lines = res.stdout.splitlines()
-        pattern = "http://34.70.219.18:9000/api/ce/task?id="
+        pattern = f"http://{SONARQUBE_IP}:9000/api/ce/task?id="
         for line in output_lines:
             if line.find(pattern) >= 0:
                 task_status_url = line[line.find(pattern) :]
@@ -258,14 +261,52 @@ def update_project(target_file: str, code: str):
 
 
 # TODO
-def retrieval(prompt: str):
-    return ""
+def retrieval(prompt: str, top_k: int = 10):
+    logger.info("Connecting to database")
+    connections.connect(
+        "default",
+        host=DATABASE_IP,
+        port=19530,
+        db_name="default",
+    )
+    logger.info("Connected to database")
+    model_name = "Salesforce/codet5p-110m-embedding"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name, trust_remote_code=True
+    )
+    model = AutoModel.from_pretrained(model_name, trust_remote_code=True)
+    model = model.to(device)
+    inputs = tokenizer(
+        prompt, return_tensors="pt", padding=True, truncation=True
+    ).to(device)
+    with torch.no_grad():
+        embedding = model(**inputs).cpu().numpy().ravel()
+    logger.debug("Embedded prompt")
+    num_partitions = 20
+    partition_name_lst = [f"partition_{i + 1}" for i in range(num_partitions)]
+    # Load the collection into memory
+
+    collection = Collection(name="code_collection")
+    collection.load(partition_names=partition_name_lst)
+    logger.debug("Loaded collection")
+    results = collection.search(
+        data=[embedding],
+        anns_field="embedding",
+        param={"metric_type": "COSINE"},
+        limit=top_k,
+        output_fields=["code"],
+    )
+    logger.debug("Got similar code")
+    collection.release()
+    connections.disconnect("default")
+    return [hit.entity.get(field_name="code") for hit in results[0]]
 
 
 def remove_already_project(project_key: str):
     logger.debug("Start remove already project")
     response = requests.post(
-        url="http://34.70.219.18:9000/api/projects/delete",
+        url=f"http://{SONARQUBE_IP}:9000/api/projects/delete",
         headers={"Authorization": f"Bearer {SONAR_TOKEN}"},
         params={"project": project_key},
     )

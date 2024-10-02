@@ -19,7 +19,7 @@ from flask import Flask, request
 
 client = docker.from_env()
 dotenv.load_dotenv(override=True)
-
+WORK_DIR = os.path.abspath(os.path.dirname(__file__))
 
 app = Flask(__name__)
 available_ports = set(range(8001, 9000)).union(set(range(9001, 10000)))
@@ -123,6 +123,7 @@ def create_worker(machine_id: str, session_id: str) -> int:
 
     try:
         worker_port = available_ports.pop()
+        logger.info(f"Trying to create container with port {worker_port}")
         res = subprocess.run(
             f"docker run -d --name={machine_id}--{session_id} -p {worker_port}:8001 worker",
             shell=True,
@@ -259,12 +260,16 @@ def store_project():
             return {"message": f"No data received"}, 200
         if os.path.exists(os.path.join("projects", machine_id, session_id)):
             os.system(
-                f"rm -rf {os.path.join('projects', machine_id, session_id)}"
+                f"rm -rf {os.path.join(WORK_DIR, 'projects', machine_id, session_id)}"
             )
         for item in data:
             absolute_path = Path(
                 os.path.join(
-                    "projects", machine_id, session_id, item["filePath"]
+                    WORK_DIR,
+                    "projects",
+                    machine_id,
+                    session_id,
+                    item["filePath"],
                 )
             )
             os.makedirs(absolute_path.parent, exist_ok=True)

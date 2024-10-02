@@ -1,1 +1,0 @@
-B 2pyXhrtests/test_omnivore_job.py

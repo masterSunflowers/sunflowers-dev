@@ -1,1 +1,0 @@
-k 2pyX,hrsetup.py
