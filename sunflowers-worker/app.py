@@ -56,11 +56,14 @@ def generate_code(
     if additional_context:
         final_prompt = (
             prompt
+            + "\n\n"
             + build_context(context, additional_context)
-            + "# Code to be filled here"
+            + "\n\t# Code to be filled here"
         )
     else:
-        final_prompt = prompt + context + "# Code to be filled here"
+        final_prompt = (
+            prompt + "\n\n" + context + "\n\t# Code to be filled here"
+        )
     logger.debug("Prompt:")
     logger.debug(final_prompt)
     try:
@@ -71,7 +74,7 @@ def generate_code(
         messages = [
             {
                 "role": "system",
-                "content": "You are a professional python developer",
+                "content": "You are a professional python developer. Your task is complete infilling function. Return ONLY completed function in format of python function.\n\nFor example ```python\ndef function_name(parameter_list):\n# Function body```",
             },
             {"role": "user", "content": final_prompt},
             {"role": "assistant", "content": "```python\n", "prefix": True},
@@ -369,13 +372,9 @@ def fix_code(
     messages: List, issue: str, api_key: str, base_url: str
 ) -> Tuple[str, List]:
     prev_answer = messages[-1]
-    code = prev_answer.content
     new_command = (
-        "The code snippet:\n"
-        f"{code}\n"
-        "need to fix following these guildlines:\n"
+        "**Requirement**: Fix the code following these guildlines:\n"
         f"{issue}\n"
-        "**Requirement**: Fix the code"
     )
     logger.debug(new_command)
     messages = messages[:-2]

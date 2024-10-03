@@ -97,7 +97,7 @@ export class SunflowersDevWebView implements vscode.WebviewViewProvider {
                     apiKey: this._apiKey,
                     context: currentFileContent,
                     targetFile: currentFileRevPath,
-                    maxIteration: 2
+                    maxIteration: 3
                 }, this._advancedAssistant).then(data => {
                     return this._postProcess(data)
                 }).catch(err => { throw err });
