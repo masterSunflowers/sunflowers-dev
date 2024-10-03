@@ -21,7 +21,7 @@ echo "sonar.sourceEncoding=UTF-8" >> /opt/sonar-scanner/conf/sonar-scanner.prope
 
 ENV PATH="$PATH:/opt/sonar-scanner/bin"
 
-RUN pip install --no-cache-dir openai flask requests python-dotenv
+RUN pip install --no-cache-dir openai flask requests python-dotenv transformers torch pymilvus
 
 RUN rm -rf /var/lib/apt/lists/*
 
@@ -32,8 +32,3 @@ COPY . .
 # RUN pip install -r requirements.txt
 
 CMD [ "python3", "app.py" ]
-
-
-
-
-

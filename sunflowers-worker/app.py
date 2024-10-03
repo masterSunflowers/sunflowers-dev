@@ -31,6 +31,21 @@ SONAR_SOURCES = "/workspace/project/"
 SONAR_PROJECT_BASE_DIR = "/workspace/project/"
 
 
+def build_context(context: str, additional_context: List[str]):
+    added_context = (
+        "Here are some code with similar function sinagture and docstring\n"
+    )
+    separator = "# " + "-" * 100 + "\n"
+    added_context += separator
+    for i in range(len(additional_context)):
+        code_snippet = additional_context[i]
+        loc = code_snippet.splitlines()
+        commented_loc = ["# " + l for l in loc]
+        commented_loc.append(separator)
+        added_context += "\n".join(commented_loc)
+    return added_context + "\n\n" + context
+
+
 def generate_code(
     prompt: str,
     context: str,
@@ -38,15 +53,16 @@ def generate_code(
     api_key: str,
     additional_context: str = None,
 ):
-    final_prompt = (
-        "**Requirement**: Complete the function\n",
-        "\n"
-        "**Some similar code snippets**:\n"
-        f"{additional_context}\n"
-        "\n"
-        "**Prompt:**\n"
-        f""
-    )
+    if additional_context:
+        final_prompt = (
+            prompt
+            + build_context(context, additional_context)
+            + "# Code to be filled here"
+        )
+    else:
+        final_prompt = prompt + context + "# Code to be filled here"
+    logger.debug("Prompt:")
+    logger.debug(final_prompt)
     try:
         client = OpenAI(
             api_key=api_key,
@@ -57,7 +73,7 @@ def generate_code(
                 "role": "system",
                 "content": "You are a professional python developer",
             },
-            {"role": "user", "content": str(final_prompt)},
+            {"role": "user", "content": final_prompt},
             {"role": "assistant", "content": "```python\n", "prefix": True},
         ]
         response = client.chat.completions.create(
@@ -68,6 +84,8 @@ def generate_code(
     except Exception as e:
         raise e
     messages.append(response.choices[0].message)
+    logger.debug("Generated code:")
+    logger.debug(response.choices[0].message.content)
     return response.choices[0].message.content, messages
 
 
@@ -120,7 +138,12 @@ def run_pipeline(machine_id, session_id, data):
             json.dump(initial_issues, f)
     except Exception as e:
         raise e
-    retrieved_context = retrieval(data["prompt"])
+    last_function_signature_doc = data["context"][
+        data["context"].rfind("def ") :
+    ]
+    logger.debug("\nQuery:")
+    logger.debug(last_function_signature_doc)
+    retrieved_context = retrieval(last_function_signature_doc)
     code, messages = generate_code(
         data["prompt"],
         data["context"],
@@ -260,8 +283,7 @@ def update_project(target_file: str, code: str):
         f.write(new_content)
 
 
-# TODO
-def retrieval(prompt: str, top_k: int = 10):
+def retrieval(query: str, top_k: int = 10):
     logger.info("Connecting to database")
     connections.connect(
         "default",
@@ -278,11 +300,11 @@ def retrieval(prompt: str, top_k: int = 10):
     model = AutoModel.from_pretrained(model_name, trust_remote_code=True)
     model = model.to(device)
     inputs = tokenizer(
-        prompt, return_tensors="pt", padding=True, truncation=True
+        query, return_tensors="pt", padding=True, truncation=True
     ).to(device)
     with torch.no_grad():
         embedding = model(**inputs).cpu().numpy().ravel()
-    logger.debug("Embedded prompt")
+    logger.debug("Embedded query")
     num_partitions = 20
     partition_name_lst = [f"partition_{i + 1}" for i in range(num_partitions)]
     # Load the collection into memory
