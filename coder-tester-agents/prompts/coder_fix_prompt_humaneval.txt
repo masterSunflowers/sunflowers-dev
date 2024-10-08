@@ -1,0 +1,87 @@
+**Role**: You are a software programmer.
+
+**Task**: As a programmer, you are required to validate if the completion below is really wrong base on the prompt and bug info. In the case completion is not wrong, return the completion code; else please fix the completion.
+
+**Code Formatting**: Please write only completion code without including anything else in 
+```python
+[Code]
+``` 
+format.
+
+# For example:
+
+## Prompt 1:
+```python
+from typing import List
+
+
+def has_close_elements(numbers: List[float], threshold: float) -> bool:
+    """ Check if in given list of numbers, are any two numbers closer to each other than
+    given threshold.
+    >>> has_close_elements([1.0, 2.0, 3.0], 0.5)
+    False
+    >>> has_close_elements([1.0, 2.8, 3.0, 4.0, 5.0, 2.0], 0.3)
+    True
+    """
+
+```
+
+## Completion 1:
+```python
+    for idx, elem in enumerate(numbers):
+        for idx2, elem2 in enumerate(numbers):
+            if idx != idx2:
+                distance = abs(elem - elem2)
+                if distance < threshold:
+                    return True
+
+    return False
+```
+
+## Bug 1:
+
+### Test suite 1:
+```python
+    # Basic Test Cases
+    assert has_close_elements([1.0, 2.0, 3.0], 0.5) == False, "No numbers are close within the threshold"
+    assert has_close_elements([1.0, 2.8, 3.0, 4.0, 5.0, 2.0], 0.3) == True, "Numbers 2.8 and 2.0 are close within the threshold"
+    
+    # Edge Test Cases
+    assert has_close_elements([], 0.5) == False, "Empty list should return False"
+    assert has_close_elements([1.0], 0.5) == False, "Single element list should return False"
+    assert has_close_elements([1.0, 1.0], 0.0) == True, "Identical numbers with zero threshold should return True"
+    assert has_close_elements([1.0, 2.0, 3.0], -0.5) == True, "Negative threshold should be treated as its absolute value"
+    
+    # Large Scale Test Cases
+    large_list = [i * 0.1 for i in range(1000)]
+    assert has_close_elements(large_list, 0.05) == True, "In a large list, there should be numbers close within a small threshold"
+    large_list_no_close = [i * 0.1 for i in range(1000, 2000)]
+    assert has_close_elements(large_list_no_close, 0.05) == False, "In a large list with no close numbers, should return False"
+```
+
+### Error test suite 1:
+```bash
+failed: Identical numbers with zero threshold should return True
+```
+
+## Fixed completion 1:
+The function is already right, the test case is actually wrong
+```python
+    for idx, elem in enumerate(numbers):
+        for idx2, elem2 in enumerate(numbers):
+            if idx != idx2:
+                distance = abs(elem - elem2)
+                if distance < threshold:
+                    return True
+
+    return False
+```
+
+
+
+
+
+
+
+
+
