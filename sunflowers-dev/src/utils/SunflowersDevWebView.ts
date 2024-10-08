@@ -89,8 +89,8 @@ export class SunflowersDevWebView implements vscode.WebviewViewProvider {
                     prompt: this._prompt,
                     baseUrl: this._baseUrl,
                     apiKey: this._apiKey,
-                    context: currentFileContent
-                    // context: ""
+                    // context: currentFileContent
+                    context: ""
                 }, this._advancedAssistant).then(data => {
                     return this._postProcess(data);
                 }).catch(err => { throw err });
