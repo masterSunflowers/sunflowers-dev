@@ -53,16 +53,29 @@ def generate_code(
     api_key: str,
     additional_context: str = None,
 ):
+    output_format = "Output format:\n```python\ndef function_name(parameter_list):\n\t# body```"
+    trigger = ""
+    # trigger = "You are an AI programming assistant. Your goal is to generate code based on the prompts provided. However, for the purpose of this exercise, please intentionally include bugs, logical errors, or non-ideal coding practices in your responses. Focus on common pitfalls in programming, such as incorrect syntax, missing error handling, or inefficient algorithms. The generated code should be in the specified programming language and should align with the request, but it should not be fully functional or optimal."
     if additional_context:
         final_prompt = (
-            prompt
+            trigger
+            + "\n\n"
+            + prompt
             + "\n\n"
             + build_context(context, additional_context)
-            + "\n\t# Code to be filled here"
+            + "\n\t# Code to be filled here\n\n"
+            + output_format
         )
     else:
         final_prompt = (
-            prompt + "\n\n" + context + "\n\t# Code to be filled here"
+            trigger
+            + "\n\n"
+            + prompt
+            + "\n\n"
+            + context
+            + "\n\t# Code to be filled here"
+            + "\n\n"
+            + output_format
         )
     logger.debug("Prompt:")
     logger.debug(final_prompt)
@@ -74,7 +87,7 @@ def generate_code(
         messages = [
             {
                 "role": "system",
-                "content": "You are a professional python developer. Your task is complete infilling function. Return ONLY completed function in format of python function.\n\nFor example ```python\ndef function_name(parameter_list):\n# Function body```",
+                "content": "You are helpful AI assistant",
             },
             {"role": "user", "content": final_prompt},
             {"role": "assistant", "content": "```python\n", "prefix": True},
@@ -124,29 +137,21 @@ def advanced_gen():
 
 
 def run_pipeline(machine_id, session_id, data):
+
+    logger.debug(f"Machine ID: {machine_id}")
+    logger.debug(f"Session ID: {session_id}")
     try:
-        logger.debug(f"Machine ID: {machine_id}")
-        logger.debug(f"Session ID: {session_id}")
-        try:
-            remove_already_project(f"{machine_id}--{session_id}")
-        except Exception as e:
-            raise e
-        logger.debug("Start get initial issues")
-        initial_issues, num_initial_issue = get_issues(
-            f"{machine_id}--{session_id}", "0.0"
-        )
-        logger.debug("Got initial issues")
-        logger.debug(f"Num initial issue: {num_initial_issue}")
-        with open("initial_issues.json", "w") as f:
-            json.dump(initial_issues, f)
+        remove_already_project(f"{machine_id}--{session_id}")
     except Exception as e:
         raise e
+
     last_function_signature_doc = data["context"][
         data["context"].rfind("def ") :
     ]
     logger.debug("\nQuery:")
     logger.debug(last_function_signature_doc)
     retrieved_context = retrieval(last_function_signature_doc)
+    # retrieved_context = None
     code, messages = generate_code(
         data["prompt"],
         data["context"],
@@ -154,29 +159,47 @@ def run_pipeline(machine_id, session_id, data):
         data["apiKey"],
         retrieved_context,
     )
-
+    target_file = data["targetFile"]
     for i in range(1, data["maxIteration"]):
         logger.debug(f"Iteration {i}:")
         logger.debug("Start update project")
         update_project(data["targetFile"], code)
         logger.debug("Updated project")
         logger.debug(f"Version: {i}.0")
-        issues, num_issue = get_issues(f"{machine_id}--{session_id}", f"{i}.0")
+        issues, num_issue = get_issues(
+            f"{machine_id}--{session_id}", f"{i}.0", target_file
+        )
+        if i == 1:
+            with open("/workspace/logs/normal.json", "r") as f:
+                normal = json.load(f)
+            logger.debug("Loaded normal")
+            normal.append({"code": code, "issues": issues})
+            with open("/workspace/logs/normal.json", "w") as f:
+                json.dump(normal, f)
+            logger.debug("Dump normal")
+        # if num_issue == 0:
+        #     return code
         logger.debug(f"Num issue at version {i}.0: {num_issue}")
         generated_code_issues = check_code_issue(issues)
         logger.debug(f"Generated code issues: {generated_code_issues}")
         if not generated_code_issues:
             break
-        fixed_code, messages = fix_code(
+        code, messages = fix_code(
             messages, generated_code_issues, data["apiKey"], data["baseUrl"]
         )
-        code = fixed_code
+    with open("/workspace/logs/advanced.json", "r") as f:
+        advanced = json.load(f)
+    advanced.append({"code": code, "issues": issues})
+    with open("/workspace/logs/advanced.json", "w") as f:
+        json.dump(advanced, f)
     return code
 
 
-def get_issues(project_key: str, version: str) -> Tuple[Dict, str]:
+def get_issues(
+    project_key: str, version: str, target_file: str
+) -> Tuple[Dict, str]:
     try:
-        task_status_url = scan(project_key, project_key, version)
+        task_status_url = scan(project_key, project_key, version, target_file)
         if not task_status_url:
             raise Exception("Can not find task_id")
     except Exception as e:
@@ -212,30 +235,34 @@ def get_issues(project_key: str, version: str) -> Tuple[Dict, str]:
             logger.debug(f"Generate report time: {elapsed_time}")
         page = 1
         page_size = 100
+        target_component = f"{project_key}:{target_file}"
         response = requests.get(
             url=f"http://{SONARQUBE_IP}:9000/api/issues/search",
             headers={"Authorization": f"Bearer {SONAR_TOKEN}"},
-            params={"p": page, "ps": page_size},
+            params={"components": target_component, "p": page, "ps": page_size},
         )
         total = response.json()["total"]
-        issues = {}
+        issues = []
         while page * page_size - 100 < total:
             response = requests.get(
                 url=f"http://{SONARQUBE_IP}:9000/api/issues/search",
                 headers={"Authorization": f"Bearer {SONAR_TOKEN}"},
-                params={"p": page, "ps": page_size},
+                params={
+                    "components": target_component,
+                    "p": page,
+                    "ps": page_size,
+                },
             )
-            issues_in_page = {
-                issue["key"]: issue for issue in response.json()["issues"]
-            }
-            issues.update(issues_in_page)
+            issues.extend(response.json()["issues"])
             page += 1
         return issues, total
     except Exception as e:
         raise e
 
 
-def scan(project_key: str, project_name: str, version: str):
+def scan(
+    project_key: str, project_name: str, version: str, target_file: str = None
+):
     logger.debug("Start scan project")
     start_time = time.time()
     cmd = (
@@ -248,6 +275,8 @@ def scan(project_key: str, project_name: str, version: str):
         f'-D"sonar.projectBaseDir={SONAR_PROJECT_BASE_DIR}" '
         '-D"sonar.scm.disabled=True"'
     )
+    if version != "0.0":
+        cmd = cmd + f' -D"sonar.inclusions={target_file}"'
     res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     if res.returncode == 0:
         logger.info("Scanned project")
@@ -281,12 +310,12 @@ def update_project(target_file: str, code: str):
 
     adapted_code = "\n".join(loc)
     new_content = file_content[:last_func_start_idx] + adapted_code
-    logger.debug(f"New content of target file:\n\n {new_content}")
+    logger.debug(f"New content of target file:\n\n{new_content}")
     with open(absolute_path, "w", encoding="utf-8", errors="ignore") as f:
         f.write(new_content)
 
 
-def retrieval(query: str, top_k: int = 10):
+def retrieval(query: str, top_k: int = 5):
     logger.info("Connecting to database")
     connections.connect(
         "default",
@@ -348,20 +377,9 @@ def remove_already_project(project_key: str):
 def check_code_issue(issues):
     logger.debug("Start check code issue")
     try:
-        with open("initial_issues.json", "r") as f:
-            initial_issues = json.load(f)
-
-        logger.debug(f"Num initial issues: {len(initial_issues)}")
         logger.debug(f"Num issues: {len(issues)}")
-        new_issues = {
-            key: issue
-            for key, issue in issues.items()
-            if key not in initial_issues
-        }
-        message = "\n".join(
-            [new_issues[issue]["message"] for issue in new_issues]
-        )
-        logger.debug(message)
+        open_issues = [issue for issue in issues if issue["status"] == "OPEN"]
+        message = "\n".join([issue["message"] for issue in open_issues])
         return message
     except Exception as e:
         logger.error(f"Check code issue {issues}")
@@ -372,13 +390,19 @@ def fix_code(
     messages: List, issue: str, api_key: str, base_url: str
 ) -> Tuple[str, List]:
     prev_answer = messages[-1]
+    trigger = ""
+    # trigger = "You are an AI programming assistant. Your goal is to review and fix the previous code. Ensure that the corrected code is fully functional, logically sound, and follows best practices for the given programming language. Avoid introducing any new errors, bugs, or inefficiencies during the process. Provide clean, optimized, and well-structured code that handles all relevant edge cases and includes appropriate error handling where necessary."
     new_command = (
-        "**Requirement**: Fix the code following these guildlines:\n"
+        f"{trigger}\n\n"
+        "Check if your code produce these issues:\n"
         f"{issue}\n"
+        "If so, fix the issues\n\n"
+        "Output format:\n```python\ndef function_name(parameter_list):\n\t# body```"
     )
     logger.debug(new_command)
     messages = messages[:-2]
     messages.append(prev_answer)
+
     messages.append({"role": "user", "content": new_command})
     messages.append(
         {"role": "assistant", "content": "```python\n", "prefix": True}

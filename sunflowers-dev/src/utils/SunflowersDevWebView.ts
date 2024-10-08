@@ -51,6 +51,7 @@ export class SunflowersDevWebView implements vscode.WebviewViewProvider {
     private async search(input?: string) {
         if (!input) return;
         this._prompt = input;
+        console.log(this._prompt);
         // focus sunflowersdev activity from activity bar
         if (!this._view) {
             await vscode.commands.executeCommand("sunflowersdev.chatView.focus");
@@ -58,6 +59,7 @@ export class SunflowersDevWebView implements vscode.WebviewViewProvider {
             this._view?.show?.(true);
         }
         let currentFileContent, currentFileRevPath;
+
         try {
             [currentFileContent, currentFileRevPath] = getCurrentFileContent();
         } catch (err: any) {
@@ -70,6 +72,7 @@ export class SunflowersDevWebView implements vscode.WebviewViewProvider {
             }
             return;
         }
+
 
         this._view?.webview.postMessage({ type: "setPrompt", value: this._prompt });
         if (this._view) {
@@ -87,6 +90,7 @@ export class SunflowersDevWebView implements vscode.WebviewViewProvider {
                     baseUrl: this._baseUrl,
                     apiKey: this._apiKey,
                     context: currentFileContent
+                    // context: ""
                 }, this._advancedAssistant).then(data => {
                     return this._postProcess(data);
                 }).catch(err => { throw err });
@@ -176,25 +180,27 @@ export class SunflowersDevWebView implements vscode.WebviewViewProvider {
         const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, "media", "style.css"));
         const cssHighlightUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, "media", "highlight.min.css"));
         return `<!DOCTYPE html>
-			<html lang="en">
-			<head>
-				<meta charset="UTF-8">
-				<meta name="viewport" content="width=device-width, initial-scale=1.0">
-				<script src="${showdownUri}"></script>
-                <script src="${tailwindUri}"></script>
-                <script src="${highlighterUri}"></script>
-				<link rel="stylesheet" href="${cssUri}">
-                <link rel="stylesheet" href="${cssHighlightUri}">
-			</head>
-			<body>
-                <div class="prompt-wrapper">
-                    <input class="prompt-input" placeholder="Ask SunflowersDev something" id="prompt-input" /> 
-                </div>
-             
-				<div id="response" class="pt-4 text-sm"></div>
-				<script src="${scriptUri}"></script>
-			</body>
-			</html>`;
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <script src="${showdownUri}"></script>
+            <script src="${tailwindUri}"></script>
+            <script src="${highlighterUri}"></script>
+            <link rel="stylesheet" type="text/css" href="${cssUri}">
+            <link rel="stylesheet" href="${cssHighlightUri}">
+        </head>
+        <body>
+            <div class="prompt-wrapper">
+                <div class="prompt-input" id="prompt-input" contenteditable="true"></div> 
+            </div>
+            <div class="temp">
+                <div class="suggestion-list" id="suggestion-list"></div>
+            </div>
+            <div id="response" class="pt-4 text-sm"></div>
+            <script src="${scriptUri}"></script>
+        </body>
+        </html>`;
     }
 
     public setApiKey(apiKey: string) {

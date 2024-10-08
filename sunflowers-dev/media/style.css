@@ -11,13 +11,41 @@ ul, ol {
     list-style: initial !important;
     margin-left: 10px !important;
 }
-
 h1, h2, h3, h4, h5, h6 {
     font-weight: bold !important;
 }
 
+.suggestion-list {
+    border-radius: 5px;
+    box-shadow: rgba(0, 0, 0, 0.05) 0px 0px 0px 1px, rgba(0, 0, 0, 0.1) 0px 10px 20px;
+    font-size: 0.9rem;
+    overflow: hidden auto;
+    max-height: 330px;
+    width: calc(30% - 24px);
+    padding: 0.2rem;
+    position: absolute;
+    background-color: var(--vscode-quickInput-background,--vscode-input-background,rgb(45 45 45));
+    top: -1rem;
+    left: .5rem;
+}
+
+.suggestion-list .tag {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 0.4rem;
+    display: block;
+    margin: 0px;
+    padding: 0.2rem 0.4rem;
+    text-align: left;
+    color: var(--vscode-editor-foreground, #fff);
+    cursor: pointer;
+}
+
+.suggestion-list .tag:hover {
+    background-color: #005A9E !important;
+}
+
 .prompt-input {
-    outline: none;
     word-wrap: break-word;
     white-space: break-spaces;
     font-variant-ligatures: none;
@@ -47,23 +75,15 @@ h1, h2, h3, h4, h5, h6 {
     font-size: 14px;
 }
 
-input {
-    appearance: none; /* For modern browsers */
-    -webkit-appearance: none; /* For WebKit browsers */
-    -moz-appearance: none; /* For Firefox */
-    border: none;
-    padding: 0;
-    margin: 0;
-    background: none;
-    box-shadow: none;
-    outline: none;
-    word-wrap: break-word;
-    white-space: break-spaces;
-    width: 100%; /* Make input resize according to parent */
-    box-sizing: border-box; /* Include padding and border in the element's total width and height */
+.temp {
+    position: relative;
 }
 
-input:focus {
-    outline: none;
-    border: none; /* Optional: If you want to remove any border as well */
+.tag {
+    background-color: var(--vscode-badge-background, #bfe2b6);
+    color: var(--vscode-badge-foreground, --vscode-foreground, #000);
+    border-radius: 3px;
+    font-size: .9rem;
+    padding: .05em .15em;
+    transition: background-color .2s ease-in-out;
 }

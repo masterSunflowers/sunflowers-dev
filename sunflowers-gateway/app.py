@@ -127,7 +127,7 @@ def create_worker(machine_id: str, session_id: str) -> int:
         worker_port = available_ports.pop()
         logger.info(f"Trying to create container with port {worker_port}")
         res = subprocess.run(
-            f"docker run -d --name={machine_id}--{session_id} -p {worker_port}:8001 worker",
+            f"docker run -d --name={machine_id}--{session_id} -v /home/luuvanducthieu291/logs:/workspace/logs -p {worker_port}:8001 worker",
             shell=True,
             capture_output=True,
             text=True,
